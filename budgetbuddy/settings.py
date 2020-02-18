@@ -37,6 +37,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    # install authentication
+    'authentication',
 ]
 
 MIDDLEWARE = [
@@ -118,3 +121,14 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/2.2/howto/static-files/
 
 STATIC_URL = '/static/'
+
+try:
+    from authentication.auth_settings import *
+    INSTALLED_APPS += AUTH_INSTALLED_APPS
+except ImportError:
+    pass
+
+try:
+    from sensitive.auth_sensitive import *
+except ImportError:
+    pass
