@@ -40,6 +40,9 @@ INSTALLED_APPS = [
 
     # install authentication
     'authentication',
+
+    # install profiles
+    'profiles',
 ]
 
 MIDDLEWARE = [

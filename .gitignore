@@ -188,6 +188,7 @@ yarn-error.log
 
 __pycache__/*
 *.pyc
+*/migrations/*
 
 # vscode settings
 .vscode/*
