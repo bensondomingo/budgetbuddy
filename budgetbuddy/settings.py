@@ -25,6 +25,7 @@ SECRET_KEY = '1t)v_t_$@)$2%yyx2k779&!p_*o#3ztq7bfu1#*s9u=^*hpg7v'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
+
 ALLOWED_HOSTS = []
 
 
@@ -135,3 +136,6 @@ try:
     from sensitive.auth_sensitive import *
 except ImportError:
     pass
+
+# authentication settings
+ACCOUNT_EMAIL_VERIFICATION = 'none'
