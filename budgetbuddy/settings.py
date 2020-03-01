@@ -44,6 +44,9 @@ INSTALLED_APPS = [
 
     # install profiles
     'profiles',
+
+    # install budgetplanner
+    'budgetplanner',
 ]
 
 MIDDLEWARE = [
@@ -126,6 +129,9 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 
+
+# Import app specific settings
+
 try:
     from authentication.auth_settings import *
     INSTALLED_APPS += AUTH_INSTALLED_APPS
@@ -136,6 +142,12 @@ try:
     from sensitive.auth_sensitive import *
 except ImportError:
     pass
+
+try:
+    from budgetplanner.bp_settings import *
+except ImportError:
+    pass
+
 
 # authentication settings
 ACCOUNT_EMAIL_VERIFICATION = 'none'
