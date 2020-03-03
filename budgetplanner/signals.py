@@ -28,6 +28,6 @@ def create_default_category(sender, instance, created, **kwargs):
                 Category.objects.create(
                     name=category.get('name'),
                     user=instance,
-                    cat_type=expenditure,
+                    category_type=expenditure,
                     description=category.get('description')
                 )

@@ -43,13 +43,15 @@ class CategorySerializer(serializers.ModelSerializer):
 
     user = serializers.StringRelatedField()
     amount_actual = serializers.SerializerMethodField()
+    amount_left = serializers.SerializerMethodField()
     category_type = serializers.CharField(
-        max_length=50, source='cat_type.name', read_only=True)
-    category_type_id = serializers.IntegerField(source='cat_type.id')
+        source='category_type.name', read_only=True)
+    category_type_id = serializers.IntegerField(
+        source='category_type.id', read_only=True)
 
     class Meta:
         model = Category
-        exclude = ['cat_type']
+        fields = '__all__'
 
     def validate_name(self, value):
         try:
@@ -70,15 +72,17 @@ class CategorySerializer(serializers.ModelSerializer):
             return value
 
     def get_amount_actual(self, obj):
-        return sum([transaction.amount for transaction in obj.transaction.all()])
+        return sum([transaction.amount for transaction in obj.transactions.all()])
 
-    def get_cat_type_name(self):
-        if not self.instance.cat_type:
-            return self.instance.cat_type.name
-        return ''
+    def get_amount_left(self, obj):
+        return obj.amount_planned - self.get_amount_actual(obj)
 
 
 class TransactionSerializer(serializers.ModelSerializer):
+
+    category_name = serializers.CharField(
+        read_only=True, source='category.name')
+    user = serializers.CharField(read_only=True, source='user.username')
 
     class Meta:
         model = Transaction

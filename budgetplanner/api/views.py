@@ -11,12 +11,11 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import filters
 
-from budgetplanner.api.serializers import CategorySerializer
-from budgetplanner.api.serializers import CategoryTypeSerializer
-from budgetplanner.api.serializers import TransactionSerializer
-from budgetplanner.api.permissions import IsAuthenticatedOrReadOnly
-from budgetplanner.api.permissions import IsObjectOwnerOrReadOnly
-from budgetplanner.api.permissions import IsCategoryOwnerOrReadOnly
+from budgetplanner.api.serializers import (
+    CategorySerializer, CategoryTypeSerializer, TransactionSerializer)
+from budgetplanner.api.permissions import (
+    IsAuthenticatedOrReadOnly, IsObjectOwnerOrReadOnly,
+    IsOwnTransactionOrReadOnly)
 from budgetplanner.models import Category, CategoryType, Transaction
 
 
@@ -39,8 +38,7 @@ class CategoryTypeViewSet(viewsets.GenericViewSet,
                                            Q(user=self.request.user))
 
     def perform_create(self, serializer):
-        user = self.request.user
-        serializer.save(user=user)
+        serializer.save(user=self.request.user)
 
 
 class CategoryViewSet(viewsets.GenericViewSet,
@@ -53,15 +51,35 @@ class CategoryViewSet(viewsets.GenericViewSet,
     serializer_class = CategorySerializer
     permission_classes = [permissions.IsAuthenticated, IsObjectOwnerOrReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['name', 'cat_type__name']
+    search_fields = ['name', 'category_type__name']
     ordering_fields = ['name', 'amount_planned']
 
     def get_queryset(self):
         return Category.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-        user = self.request.user
-        serializer.save(user=user)
+        serializer.save(user=self.request.user)
+
+
+class TransactionAPIViewSet(viewsets.GenericViewSet,
+                            mixins.ListModelMixin,
+                            mixins.CreateModelMixin,
+                            mixins.RetrieveModelMixin,
+                            mixins.UpdateModelMixin,
+                            mixins.DestroyModelMixin):
+
+    serializer_class = TransactionSerializer
+    permission_classes = [
+        permissions.IsAuthenticated, IsOwnTransactionOrReadOnly]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['date', 'description']
+    ordering_fields = ['date', 'amount', 'category__name']
+
+    def get_queryset(self):
+        return Transaction.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 
 class CategoryTypeAdminCreateView(APIView):
@@ -75,5 +93,6 @@ class CategoryTypeAdminCreateView(APIView):
         cat_types = [CategoryType.objects.create(name=typ, user=admin)
                      for typ in ['income', 'savings', 'expenditure']]
 
-        data = [CategoryTypeSerializer(cat_type).data for cat_type in cat_types]
+        data = [CategoryTypeSerializer(
+            cat_type).data for cat_type in cat_types]
         return Response(data, status=status.HTTP_201_CREATED)

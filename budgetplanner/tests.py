@@ -10,9 +10,9 @@ from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from budgetplanner.api.serializers import CategoryTypeSerializer
-from budgetplanner.api.serializers import CategorySerializer
-from budgetplanner.models import CategoryType, Category
+from budgetplanner.api.serializers import (
+    CategoryTypeSerializer, CategorySerializer, TransactionSerializer)
+from budgetplanner.models import CategoryType, Category, Transaction
 
 
 USER_MODEL = get_user_model()
@@ -51,6 +51,9 @@ class BudgetPlannerEndpointTestCase(APITestCase):
 
         return user
 
+    def _get_user(self, username):
+        return USER_MODEL.objects.get(username=username)
+
     def _login_user(self, username):
         user = USER_MODEL.objects.get(username=username)
         token = Token.objects.get(user=user)
@@ -62,7 +65,8 @@ class BudgetPlannerEndpointTestCase(APITestCase):
     @classmethod
     def setUpClass(cls):
         '''
-        Test Setup: Create admin and common user on the database
+        Test Setup: Create admin. Also automatically create default
+        category types behind the scene.
         '''
         # admin
         user = USER_MODEL.objects.create_superuser(**cls.admin_creds)
@@ -78,11 +82,6 @@ class BudgetPlannerEndpointTestCase(APITestCase):
         '''
         Create objects
         '''
-        # Login admin and create default category types
-        self._login_user(self.admin_creds['username'])
-        # response = self.client.post(path=reverse('create-defaults'))
-        # self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        # self.assertEqual(len(response.data), 3)
 
         # create users
         self._create_user(**self.usera_creds)
@@ -97,8 +96,8 @@ class BudgetPlannerEndpointTestCase(APITestCase):
 
 class CategoryTypeEndpointTestCase(BudgetPlannerEndpointTestCase):
 
-    list_endpoint = 'category-type-list'
-    detail_endpoint = 'category-type-detail'
+    list_endpoint = 'categorytype-list'
+    detail_endpoint = 'categorytype-detail'
 
     def test_list_cat_type(self):
         '''
@@ -278,18 +277,18 @@ class CategoryEnpointTestCase(BudgetPlannerEndpointTestCase):
 
         Category.objects.create(
             name='usera_test_income_category',
-            amount_planned='10000', user=usera, cat_type=income)
+            amount_planned='10000', user=usera, category_type=income)
         Category.objects.create(
             name='usera_test_expenditure_category',
             amount_planned='5000',
-            user=usera, cat_type=expenditure)
+            user=usera, category_type=expenditure)
         Category.objects.create(
             name='userb_test_income_category',
-            amount_planned='10000', user=userb, cat_type=income)
+            amount_planned='10000', user=userb, category_type=income)
         Category.objects.create(
             name='userb_test_expenditure_category',
             amount_planned='5000',
-            user=userb, cat_type=expenditure)
+            user=userb, category_type=expenditure)
 
     def test_list_cat_endpoint(self):
         # verify default categories were created
@@ -345,23 +344,23 @@ class CategoryEnpointTestCase(BudgetPlannerEndpointTestCase):
         self._login_user(self.usera_creds['username'])
         response = self.client.post(reverse(self.list_endpoint), data={
                                     'name': 'usera_test_income_category_2',
-                                    'cat_type': income.id})
+                                    'category_type': income})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response = self.client.post(reverse(self.list_endpoint), data={
                                     'name': 'usera_test_expenditure_category_2',
-                                    'cat_type': expenditure.id})
+                                    'category_type': expenditure.id})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         # test duplicate
         response = self.client.post(reverse(self.list_endpoint), data={
                                     'name': 'usera_test_income_category_2',
-                                    'cat_type': income.id})
+                                    'category_type': income.id})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self._logout_user()
 
         # test anonymous
         response = self.client.post(reverse(self.list_endpoint), data={
                                     'name': 'anonymous_test_income_category',
-                                    'cat_type': income.id})
+                                    'category_type': income.id})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_update_cat_endpoint(self):
@@ -385,7 +384,7 @@ class CategoryEnpointTestCase(BudgetPlannerEndpointTestCase):
         expenditure = CategoryType.objects.get(name='expenditure')
         response = self.client.post(
             reverse(self.list_endpoint),
-            data={'name': 'test', 'cat_type': expenditure.id})
+            data={'name': 'test', 'category_type': expenditure.id})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Then rename it so that it will conflict with an existing
@@ -423,11 +422,179 @@ class CategoryEnpointTestCase(BudgetPlannerEndpointTestCase):
 
     def test_set_null_with_cat_type(self):
         test_cat_type = CategoryType.objects.get(name='usera_test_cat_type')
-        # create a new category and set test_cat_type as cat_type
-        category = Category.objects.create(name='test', cat_type=test_cat_type)
-        self.assertEqual(category.cat_type.id, test_cat_type.id)
+        # create a new category and set test_cat_type as category_type
+        category = Category.objects.create(
+            name='test', category_type=test_cat_type)
+        self.assertEqual(category.category_type.id, test_cat_type.id)
 
         # delete test_cat_type
         test_cat_type.delete()
         category = Category.objects.get(name='test')
-        self.assertEqual(category.cat_type, None)
+        self.assertEqual(category.category_type, None)
+
+
+class TransactionEndpointTestCase(BudgetPlannerEndpointTestCase):
+
+    list_endpoint = 'transaction-list'
+    detail_endpoint = 'transaction-detail'
+
+    def setUp(self):
+        '''
+        Create two dummy transactions for each user.
+        '''
+        super(TransactionEndpointTestCase, self).setUp()
+
+        # usera
+        usera = USER_MODEL.objects.get(username=self.usera_creds['username'])
+        personal = Category.objects.get(name='personal', user=usera)
+        personal.amount_planned = 2500
+        personal.save()
+        utility = Category.objects.get(name='utilities', user=usera)
+        utility.amount_planned = 3000
+        utility.save()
+        Transaction.objects.create(
+            date='2020-03-01',
+            user=usera,
+            category=utility,
+            amount=150,
+            description='LED bulb for kitchen'
+        )
+        Transaction.objects.create(
+            date='2020-03-02',
+            user=usera,
+            category=personal,
+            amount=600,
+            description='shirt'
+        )
+
+        # userb
+        userb = USER_MODEL.objects.get(username=self.userb_creds['username'])
+        housing = Category.objects.get(name='housing', user=userb)
+        housing.amount_planned = 5000
+        housing.save()
+        benevolence = Category.objects.get(name='benevolence', user=userb)
+        benevolence.amount_planned = 5000
+        benevolence.save()
+        Transaction.objects.create(
+            date='2020-03-01',
+            user=userb,
+            category=housing,
+            amount=4500,
+            description='Apartment Rental'
+        )
+        Transaction.objects.create(
+            date='2020-03-02',
+            user=userb,
+            category=benevolence,
+            amount=100,
+            description='Offering'
+        )
+
+    def test_list_transactions(self):
+
+        self._login_user(self.usera_creds['username'])
+        response = self.client.get(reverse(self.list_endpoint))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_len = len(response.json())
+        actual_len = len(Transaction.objects.filter(
+            user__username=self.usera_creds['username']))
+        self.assertEqual(response_len, actual_len)
+        for response in response.json():
+            self.assertEqual(response.get('user'),
+                             self.usera_creds['username'])
+
+        self._logout_user()
+
+        # Test IsAuthenticated permission, access using anonymous creds
+        response = self.client.get(reverse(self.list_endpoint))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_create_transactions(self):
+
+        usera = USER_MODEL.objects.get(username=self.usera_creds['username'])
+        food = Category.objects.get(name='food', user=usera)
+        food.amount_planned = 5000
+        food.save()
+        self._login_user(usera.username)
+        response = self.client.post(reverse(self.list_endpoint),
+                                    data={'date': '2020-03-03',
+                                          'user': usera.id,
+                                          'category': food.id,
+                                          'amount': 500})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # Another way to verify successful transaction creation is to check
+        # the Category related object's amount_actual and amount_left.
+        # amount_left = amount_planned - amount_actual
+        endpoint = CategoryEnpointTestCase.detail_endpoint
+        endpoint = reverse(endpoint, kwargs={'pk': food.id})
+        response = self.client.get(endpoint)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data['amount_left'],
+                         data['amount_planned'] - data['amount_actual'])
+
+        self._logout_user()
+
+        response = self.client.post(reverse(self.list_endpoint),
+                                    data={'date': '2020-03-03',
+                                          'user': usera.id,
+                                          'category': food.id,
+                                          'amount': 500})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_retrieve_transactions(self):
+
+        usera = self._get_user(self.usera_creds['username'])
+        data = Transaction.objects.get(
+            user=usera, description__contains='shirt')
+        usera_endpoint = reverse(self.detail_endpoint, kwargs={'pk': data.id})
+        self._login_user(usera.username)
+        response = self.client.get(usera_endpoint)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        serialized_data = TransactionSerializer(data).data
+        self.assertDictEqual(response.json(), serialized_data)
+
+        # Test on_delete=models.SET_NULL relation with Category
+        personal_category = data.category
+        personal_category.delete()
+
+        response = self.client.get(usera_endpoint)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data.get('category'), None)
+
+    def test_update_transactions(self):
+
+        usera = self._get_user(self.usera_creds['username'])
+        trans = Transaction.objects.get(description__contains='shirt')
+        trans_data = TransactionSerializer(trans).data
+
+        self._login_user(usera.username)
+        usera_endpoint = reverse(self.detail_endpoint, kwargs={'pk': trans.id})
+        response = self.client.get(usera_endpoint)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertDictEqual(response.json(), trans_data)
+
+        trans_data.amount = 800   # update transaction amount
+        response = self.client.put(usera_endpoint, data=trans_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        del(trans_data['updated_at'])
+        del(response_data['updated_at'])
+
+        self.assertDictEqual(response_data, trans_data)
+
+    def test_destroy_transactions(self):
+        
+        usera = self._get_user(self.usera_creds['username'])
+        self._login_user(usera.username)
+
+        trans = Transaction.objects.get(description__contains='shirt')
+        endpoint = reverse(self.detail_endpoint, kwargs={'pk': trans.id})
+
+        response = self.client.delete(endpoint)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        trans_list = Transaction.objects.filter(description__contains='shirt')
+        self.assertEqual(len(trans_list), 0)
