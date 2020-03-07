@@ -11,17 +11,48 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import filters
 
+from budgetplanner.models import (
+    BudgetPlan, Category, CategoryType, Transaction)
 from budgetplanner.api.serializers import (
-    CategorySerializer, CategoryTypeSerializer, TransactionSerializer)
+    BudgetPlanSerializer, CategorySerializer,
+    CategoryTypeSerializer, TransactionSerializer)
 from budgetplanner.api.permissions import (
     IsAuthenticatedOrReadOnly, IsObjectOwnerOrReadOnly)
-from budgetplanner.models import Category, CategoryType, Transaction
 
 from utils.funcs import filter_list_of_dict
 
 
 USER_MODEL = get_user_model()
 ADMIN_USERNAME = settings.ADMIN_USERNAME
+
+
+class BudgetPlanViewSet(viewsets.GenericViewSet,
+                        mixins.ListModelMixin,
+                        mixins.CreateModelMixin,
+                        mixins.RetrieveModelMixin,
+                        mixins.UpdateModelMixin,
+                        mixins.DestroyModelMixin):
+
+    serializer_class = BudgetPlanSerializer
+    permission_classes = [permissions.IsAuthenticated, IsObjectOwnerOrReadOnly]
+
+    def get_queryset(self):
+        return BudgetPlan.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+
+        data_list = CategoryTypeSerializer(
+            instance.category_types.all(), many=True).data
+        fields = ['id', 'name']
+        category_types = filter_list_of_dict(data_list, fields)
+        data = serializer.data
+        data.update({'category_types': [ct for ct in category_types]})
+        return Response(data=data)
 
 
 class CategoryTypeViewSet(viewsets.GenericViewSet,
@@ -54,8 +85,8 @@ class CategoryTypeViewSet(viewsets.GenericViewSet,
             instance = self.get_object()
             serializer = self.get_serializer(instance)
 
-            objects = instance.categories.all()
-            data_list = CategorySerializer(objects, many=True).data
+            data_list = CategorySerializer(
+                instance.categories.all(), many=True).data
             fields = ['id', 'name', 'amount_planned']
             categories = filter_list_of_dict(data_list, fields)
             data = serializer.data
@@ -97,8 +128,8 @@ class CategoryViewSet(viewsets.GenericViewSet,
             instance = self.get_object()
             serializer = self.get_serializer(instance)
 
-            objects = instance.transactions.all()
-            data_list = TransactionSerializer(objects, many=True).data
+            data_list = TransactionSerializer(
+                instance.transactions.all(), many=True).data
             fields = ['id', 'date', 'amount', 'description']
             transactions = filter_list_of_dict(data_list, fields)
 

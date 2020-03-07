@@ -4,21 +4,25 @@ from django.contrib.auth import get_user_model
 USER_MODEL = get_user_model()
 
 
-class BudgetPlan(models.Model):
-    name = models.CharField(max_length=100)
-    date = models.DateField()
-    description = models.TextField(blank=True, default='')
-    created_at = models.DateField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-
 class CategoryType(models.Model):
     name = models.CharField(max_length=50)
     user = models.ForeignKey(
         USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
-    plan = models.ManyToManyField(
-        BudgetPlan, related_name='category_types',
-        related_query_name='category_type', blank=True)
+    created_at = models.DateField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+
+class BudgetPlan(models.Model):
+    name = models.CharField(max_length=100)
+    date = models.DateField()
+    user = models.ForeignKey(USER_MODEL, on_delete=models.CASCADE)
+    category_types = models.ManyToManyField(
+        CategoryType, related_name='budget_plans',
+        related_query_name='budget_plan', blank=True)
+    description = models.TextField(blank=True, default='')
     created_at = models.DateField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

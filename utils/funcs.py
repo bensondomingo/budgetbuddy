@@ -1,3 +1,4 @@
+from datetime import datetime
 
 def filter_dict(_dict, keys):
     '''
@@ -16,3 +17,7 @@ def filter_list_of_dict(list_of_dict, keys):
     '''
     for d in [_dict for _dict in list_of_dict]:
         yield filter_dict(d, keys)
+
+
+def get_date():
+    return datetime.now().strftime('%Y-%m-%d')

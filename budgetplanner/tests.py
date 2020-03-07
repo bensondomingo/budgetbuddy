@@ -1,4 +1,5 @@
 from pprint import pprint
+from datetime import datetime
 
 from django.contrib.auth import get_user_model
 from django.conf import settings
@@ -11,8 +12,12 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from budgetplanner.api.serializers import (
-    CategoryTypeSerializer, CategorySerializer, TransactionSerializer)
-from budgetplanner.models import CategoryType, Category, Transaction
+    BudgetPlanSerializer, CategoryTypeSerializer,
+    CategorySerializer, TransactionSerializer)
+from budgetplanner.models import (
+    BudgetPlan, CategoryType, Category, Transaction)
+
+from utils.funcs import filter_list_of_dict, get_date
 
 
 USER_MODEL = get_user_model()
@@ -94,6 +99,108 @@ class BudgetPlannerEndpointTestCase(APITestCase):
         CategoryType.objects.create(name='userb_test_cat_type', user=userb)
 
 
+class BudgetPlanEndpointTestCase(BudgetPlannerEndpointTestCase):
+
+    list_endpoint = 'budgetplan-list'
+    detail_endpoint = 'budgetplan-detail'
+
+    def setUp(self):
+        super().setUp()
+        usera = USER_MODEL.objects.get(username=self.usera_creds['username'])
+        userb = USER_MODEL.objects.get(username=self.userb_creds['username'])
+        category_types = CategoryType.objects.all()
+        income = category_types.get(name='income')
+        savings = category_types.get(name='savings')
+        expenditure = category_types.get(name='expenditure')
+
+        self.usera_plan = BudgetPlan.objects.create(
+            name='usera_test_budget_plan',
+            date=get_date(),
+            user=usera
+        )
+        self.usera_plan.category_types.add(income, savings, expenditure)
+        self.usera_plan.save()
+
+        self.userb_plan = BudgetPlan.objects.create(
+            name='userb_test_budget_plan',
+            date=get_date(),
+            user=userb
+        )
+        self.userb_plan.category_types.add(income, savings, expenditure)
+        self.usera_plan.save()
+
+    def tearDown(self):
+        return super().tearDown()
+
+    def test_list_budget_plan(self):
+        self._login_user(self.usera_creds['username'])
+        response = self.client.get(reverse(self.list_endpoint))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        serialized_data = BudgetPlanSerializer(self.usera_plan).data
+        self.assertEqual(response.data[0], serialized_data)
+        self._logout_user()
+
+        # anonymous user
+        response = self.client.get(reverse(self.list_endpoint))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_retrieve_budget_plan(self):
+        self._login_user(self.userb_creds['username'])
+        userb_endpoint = reverse(self.detail_endpoint, kwargs={
+                                 'pk': self.userb_plan.id})
+        response = self.client.get(userb_endpoint)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        serialized_data = BudgetPlanSerializer(self.userb_plan).data
+
+        # remove added field by the view retrieve method
+        response_data = response.data
+        category_types = response_data.pop('category_types')
+        self.assertEqual(response_data, serialized_data)
+
+        ser_cat_typs = CategoryTypeSerializer(
+            self.userb_plan.category_types.all(), many=True).data
+        data = filter_list_of_dict(ser_cat_typs, ['id', 'name'])
+        self.assertEqual(category_types, list(data))
+
+    def test_update_budget_plan(self):
+        self._login_user(self.usera_creds['username'])
+        usera_endpoint = reverse(self.detail_endpoint, kwargs={
+                                 'pk': self.usera_plan.id})
+        response = self.client.get(usera_endpoint)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = dict(response.data)
+        data['name'] += '--updated'
+        data['category_types'] = [self.usera_plan.category_types.first().id]
+        self.client.put(usera_endpoint, data=data)
+        response = self.client.get(usera_endpoint)
+        self.assertIn('updated', response.data['name'])
+        self.assertEqual(len(response.data['category_types']), 1)
+
+        self._logout_user()
+
+    def test_delete_budget_plan(self):
+        self._login_user(self.usera_creds['username'])
+        usera_endpoint = reverse(self.detail_endpoint, kwargs={
+                                 'pk': self.usera_plan.id})
+        response = self.client.delete(usera_endpoint)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        response = self.client.get(usera_endpoint)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        userb_endpoint = reverse(self.detail_endpoint, kwargs={
+                                 'pk': self.userb_plan.id})
+        response = self.client.delete(usera_endpoint)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self._logout_user()
+        self._login_user(self.userb_creds['username'])
+        response = self.client.delete(userb_endpoint)
+        pprint(response.data)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+
+
 class CategoryTypeEndpointTestCase(BudgetPlannerEndpointTestCase):
 
     list_endpoint = 'categorytype-list'
@@ -148,24 +255,24 @@ class CategoryTypeEndpointTestCase(BudgetPlannerEndpointTestCase):
         # usera
         self._login_user(self.usera_creds['username'])
         response = self.client.post(path=reverse(self.list_endpoint), data={
-                                    'name': 'user_test_cat_type'})
+            'name': 'user_test_cat_type'})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         # create duplicate category type for usera. This should result in
         # HTTP_400_BAD_REQUEST.
         response = self.client.post(path=reverse(self.list_endpoint), data={
-                                    'name': 'user_test_cat_type'})
+            'name': 'user_test_cat_type'})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self._logout_user()
 
         # userb
         self._login_user(self.userb_creds['username'])
         response = self.client.post(path=reverse(self.list_endpoint), data={
-                                    'name': 'user_test_cat_type'})
+            'name': 'user_test_cat_type'})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         # create duplicate category type for userb. This should result in
         # HTTP_400_BAD_REQUEST.
         response = self.client.post(path=reverse(self.list_endpoint), data={
-                                    'name': 'user_test_cat_type'})
+            'name': 'user_test_cat_type'})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self._logout_user()
 
@@ -173,7 +280,7 @@ class CategoryTypeEndpointTestCase(BudgetPlannerEndpointTestCase):
         # API requires user to login to access create endpoint.
         # POSTing on this endpoint will raise HTTP_401_UNAUTHORIZED
         response = self.client.post(path=reverse(self.list_endpoint), data={
-                                    'name': 'user_test_cat_type'})
+            'name': 'user_test_cat_type'})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_update_cat_type(self):
@@ -182,9 +289,9 @@ class CategoryTypeEndpointTestCase(BudgetPlannerEndpointTestCase):
         userb_test_cat_type = CategoryType.objects.get(
             name='userb_test_cat_type')
         usera_endpoint = reverse(self.detail_endpoint, kwargs={
-                                 'pk': usera_test_cat_type.id})
+            'pk': usera_test_cat_type.id})
         userb_endpoint = reverse(self.detail_endpoint, kwargs={
-                                 'pk': userb_test_cat_type.id})
+            'pk': userb_test_cat_type.id})
 
         # usera
         self._login_user(self.usera_creds['username'])
@@ -198,7 +305,7 @@ class CategoryTypeEndpointTestCase(BudgetPlannerEndpointTestCase):
         self.assertEqual(name, 'usera_up_cat_type')
         # test update unowned object
         response = self.client.put(userb_endpoint, data={
-                                   'name': 'usera_up_cat_type'})
+            'name': 'usera_up_cat_type'})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self._logout_user()
 
@@ -214,7 +321,7 @@ class CategoryTypeEndpointTestCase(BudgetPlannerEndpointTestCase):
         self.assertEqual(name, 'userb_up_cat_type')
         # test update unowned object
         response = self.client.put(usera_endpoint, data={
-                                   'name': 'userb_up_cat_type'})
+            'name': 'userb_up_cat_type'})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         # rename category type object so that it will conflict with another
@@ -222,7 +329,7 @@ class CategoryTypeEndpointTestCase(BudgetPlannerEndpointTestCase):
 
         # First create a new category type called "test"
         response = self.client.post(path=reverse(self.list_endpoint), data={
-                                    'name': 'test'})
+            'name': 'test'})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         # Now update "userb_up_cat_type" name to "test". This should result to
         # HTTP_400_BAD_REQUEST
@@ -240,9 +347,9 @@ class CategoryTypeEndpointTestCase(BudgetPlannerEndpointTestCase):
         userb_test_cat_type = CategoryType.objects.get(
             name='userb_test_cat_type')
         usera_endpoint = reverse(self.detail_endpoint, kwargs={
-                                 'pk': usera_test_cat_type.id})
+            'pk': usera_test_cat_type.id})
         userb_endpoint = reverse(self.detail_endpoint, kwargs={
-                                 'pk': userb_test_cat_type.id})
+            'pk': userb_test_cat_type.id})
 
         default_cat_type = CategoryType.objects.get(name='income')
 
@@ -343,24 +450,24 @@ class CategoryEnpointTestCase(BudgetPlannerEndpointTestCase):
         # usera
         self._login_user(self.usera_creds['username'])
         response = self.client.post(reverse(self.list_endpoint), data={
-                                    'name': 'usera_test_income_category_2',
-                                    'category_type': income})
+            'name': 'usera_test_income_category_2',
+            'category_type': income})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response = self.client.post(reverse(self.list_endpoint), data={
-                                    'name': 'usera_test_expenditure_category_2',
-                                    'category_type': expenditure.id})
+            'name': 'usera_test_expenditure_category_2',
+            'category_type': expenditure.id})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         # test duplicate
         response = self.client.post(reverse(self.list_endpoint), data={
-                                    'name': 'usera_test_income_category_2',
-                                    'category_type': income.id})
+            'name': 'usera_test_income_category_2',
+            'category_type': income.id})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self._logout_user()
 
         # test anonymous
         response = self.client.post(reverse(self.list_endpoint), data={
-                                    'name': 'anonymous_test_income_category',
-                                    'category_type': income.id})
+            'name': 'anonymous_test_income_category',
+            'category_type': income.id})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_update_cat_endpoint(self):
@@ -371,7 +478,7 @@ class CategoryEnpointTestCase(BudgetPlannerEndpointTestCase):
             reverse(self.list_endpoint) + '?search=income')
         data = response.json()[0]
         usera_endpoint = reverse(self.detail_endpoint, kwargs={
-                                 'pk': data.get('id')})
+            'pk': data.get('id')})
         data['amount_planned'] = 20000
         response = self.client.put(usera_endpoint, data=data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -391,7 +498,7 @@ class CategoryEnpointTestCase(BudgetPlannerEndpointTestCase):
         # category object i.e food category
         data = response.data
         usera_endpoint = reverse(self.detail_endpoint, kwargs={
-                                 'pk': data.get('id')})
+            'pk': data.get('id')})
         data['name'] = 'food'
         response = self.client.put(usera_endpoint, data=data)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -410,7 +517,7 @@ class CategoryEnpointTestCase(BudgetPlannerEndpointTestCase):
 
         self._login_user(self.usera_creds['username'])
         usera_endpoint = reverse(self.detail_endpoint, kwargs={
-                                 'pk': category.id})
+            'pk': category.id})
         response = self.client.get(usera_endpoint)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -586,7 +693,7 @@ class TransactionEndpointTestCase(BudgetPlannerEndpointTestCase):
         self.assertDictEqual(response_data, trans_data)
 
     def test_destroy_transactions(self):
-        
+
         usera = self._get_user(self.usera_creds['username'])
         self._login_user(usera.username)
 

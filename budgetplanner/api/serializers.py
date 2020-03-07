@@ -3,16 +3,33 @@ from django.conf import settings
 
 from rest_framework import serializers
 
-from budgetplanner.models import Category, CategoryType, Transaction
+from budgetplanner.models import (
+    BudgetPlan, CategoryType, Category, Transaction)
 
 
 ADMIN_USERNAME = settings.ADMIN_USERNAME
 
 
+class CategoryTypeRelatedField(serializers.PrimaryKeyRelatedField):
+    def display_value(self, instance):
+        return instance.name
+
+    def get_queryset(self):
+        return CategoryType.objects.filter(Q(user__username=ADMIN_USERNAME) |
+                                           Q(user=self.context['request'].user))
+
+
+class BudgetPlanSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField()
+    category_types = CategoryTypeRelatedField(many=True, write_only=True)
+
+    class Meta:
+        model = BudgetPlan
+        fields = '__all__'
+
+
 class CategoryTypeSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
-    # categories = CategorySerializer(
-    #     source='category', many=True, read_only=True)
 
     class Meta:
         model = CategoryType
